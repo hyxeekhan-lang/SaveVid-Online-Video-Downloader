@@ -1273,7 +1273,6 @@ function startSelectedPreparation(format) {
 
   preparation.promise = (async () => {
     let directReady = false;
-    let streamReady = false;
     if (streamable) {
       const directPreparation = await warmVideoFormat(url, format);
       if (preparation.controller.signal.aborted) {
@@ -1282,11 +1281,9 @@ function startSelectedPreparation(format) {
         throw error;
       }
       directReady = !directPreparation?.error;
-      streamReady = !directReady;
     }
 
     if (directReady) return { directReady, fallbackDownload: null };
-    if (streamReady) return { directReady, streamReady, fallbackDownload: null };
     const fallbackDownload = await prepareBackendDownload(
       url,
       format,
@@ -1305,14 +1302,12 @@ function startSelectedPreparation(format) {
           : `Preparing download... ${percent}%`;
       },
     );
-    return { directReady, streamReady, fallbackDownload };
+    return { directReady, fallbackDownload };
   })().then((result) => {
     preparation.status = 'ready';
     if (selectedPreparation === preparation) {
       $('#barFill').style.width = '100%';
-      $('#progressText').textContent = result.streamReady
-        ? 'Stream ready. Starting download...'
-        : 'Format ready. Starting download...';
+      $('#progressText').textContent = 'Format ready. Starting download...';
     }
     return result;
   }, (error) => {
@@ -1338,7 +1333,6 @@ $('#startDownload').addEventListener('click', async () => {
   try {
     let selectedFormat;
     let directReady;
-    let streamReady;
     let fallbackDownload;
     for (;;) {
       const info = state.info;
@@ -1348,7 +1342,7 @@ $('#startDownload').addEventListener('click', async () => {
       if (!preparation) throw new Error('Please choose a format first.');
 
       try {
-        ({ directReady, streamReady, fallbackDownload } = await preparation.promise);
+        ({ directReady, fallbackDownload } = await preparation.promise);
       } catch (error) {
         if (error.name !== 'AbortError') throw error;
         if (!state.info || !state.formatId) return;
@@ -1374,19 +1368,6 @@ $('#startDownload').addEventListener('click', async () => {
       downloadFrame.tabIndex = -1;
       downloadFrame.src = apiUrl(`/api/stream?${query}`);
       document.body.appendChild(downloadFrame);
-    } else if (streamReady) {
-      const query = new URLSearchParams({
-        url: state.url,
-        fid: selectedFormat.streamFid,
-        ext: selectedFormat.streamExt || selectedFormat.ext || 'mp4',
-        name: state.info.title || 'video',
-      });
-      const downloadFrame = document.createElement('iframe');
-      downloadFrame.hidden = true;
-      downloadFrame.title = 'Video download';
-      downloadFrame.tabIndex = -1;
-      downloadFrame.src = apiUrl(`/api/stream-progressive?${query}`);
-      document.body.appendChild(downloadFrame);
     } else {
       const anchor = document.createElement('a');
       anchor.href = apiUrl(fallbackDownload.url);
@@ -1397,11 +1378,9 @@ $('#startDownload').addEventListener('click', async () => {
     }
 
     $('#barFill').style.width = '100%';
-    $('#progressText').textContent = streamReady
-      ? 'Starting streamed download. It will continue as video data arrives.'
-      : 'Download started. Check your browser downloads.';
+    $('#progressText').textContent = 'Download started. Check your browser downloads.';
     saveHistory(selectedFormat);
-    toast(streamReady ? 'Starting streamed download' : 'Browser download started');
+    toast('Browser download started');
   } catch (error) {
     if (error.name === 'AbortError') return;
     showDownloadError(error.message || 'Download failed. Please try another format.');
