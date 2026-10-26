@@ -3,6 +3,10 @@
 SaveVid is a browser-based video downloader with a Node.js backend. The same
 server serves the website and its `/api` routes.
 
+## Screenshot
+
+![SaveVid homepage on desktop](docs/images/savevid-homepage.png)
+
 ## Run locally
 
 Install Node.js, then run:
