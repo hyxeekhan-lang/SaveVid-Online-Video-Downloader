@@ -38,6 +38,11 @@ project to a GitHub repository, then create a Render Blueprint from that
 repository. Render will build and start the Node service and check `/healthz`.
 Open the assigned `onrender.com` address to use the app on other devices.
 
+The SaveVid backend is deployed at
+<https://savevid-d85v.onrender.com>. When the Vercel site detects that its
+network cannot reach YouTube, it tries this hosted backend before asking to use
+a backend running on the same computer.
+
 Free services may sleep while idle, have temporary storage, and take time to
 wake. YouTube can also block requests from a hosting provider's network, so
 deployment does not guarantee that every source or video will work.

@@ -773,10 +773,12 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const esc = (s = '') => String(s).replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const LOCAL_API_ORIGIN = 'http://127.0.0.1:8899';
+const REMOTE_API_ORIGIN = 'https://savevid-d85v.onrender.com';
 const LIVE_SAVEVID_ORIGINS = new Set([
   'https://getsavevi.vercel.app',
   'https://savevid-sigma.vercel.app',
   'https://savevid-iamhamid174-cryptos-projects.vercel.app',
+  REMOTE_API_ORIGIN,
 ]);
 let apiOrigin = location.origin;
 const apiUrl = (path) => `${apiOrigin}${path}`;
@@ -996,14 +998,28 @@ async function apiInfo(url) {
       && /YouTube is refusing requests from this server's network/i.test(error.message);
     if (!serverBlocked) throw error;
 
-    try {
-      payload = await probeAt(LOCAL_API_ORIGIN);
-      apiOrigin = LOCAL_API_ORIGIN;
-      $('#sourceHint').textContent = 'Connected to the SaveVid backend running on this computer. Keep the local server open while using the site.';
-      toast('Using this computer for downloads');
-    } catch (localError) {
+    const fallbackOrigins = [...new Set([REMOTE_API_ORIGIN, LOCAL_API_ORIGIN])]
+      .filter((origin) => origin !== apiOrigin);
+    const fallbackErrors = [];
+    for (const origin of fallbackOrigins) {
+      try {
+        payload = await probeAt(origin);
+        apiOrigin = origin;
+        if (origin === LOCAL_API_ORIGIN) {
+          $('#sourceHint').textContent = 'Connected to the SaveVid backend running on this computer. Keep the local server open while using the site.';
+          toast('Using this computer for downloads');
+        } else {
+          $('#sourceHint').textContent = 'Connected to the SaveVid hosted backend. The first request may take a little longer while the free server wakes up.';
+          toast('Connected to the hosted backend');
+        }
+        break;
+      } catch (fallbackError) {
+        fallbackErrors.push(`${origin}: ${fallbackError.message}`);
+      }
+    }
+    if (!payload) {
       throw new Error(
-        `${error.message} Start the SaveVid server on this computer (node server.js), allow the browser's local-network permission, and try again. Local connection: ${localError.message}`
+        `${error.message} Hosted/local backend fallback failed: ${fallbackErrors.join('; ')}.`
       );
     }
   }
