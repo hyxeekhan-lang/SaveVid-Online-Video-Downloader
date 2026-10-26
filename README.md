@@ -39,9 +39,9 @@ repository. Render will build and start the Node service and check `/healthz`.
 Open the assigned `onrender.com` address to use the app on other devices.
 
 The SaveVid backend is deployed at
-<https://savevid-d85v.onrender.com>. When the Vercel site detects that its
-network cannot reach YouTube, it tries this hosted backend before asking to use
-a backend running on the same computer.
+<https://savevid-d85v.onrender.com>. YouTube requests from the Vercel site try a
+backend running on the same device first, then use the hosted backend as a
+fallback.
 
 Free services may sleep while idle, have temporary storage, and take time to
 wake. YouTube can also block requests from a hosting provider's network, so
@@ -50,9 +50,10 @@ deployment does not guarantee that every source or video will work.
 ## Vercel
 
 `vercel.json` and `api/index.js` are retained for the existing Vercel
-deployment. If the Vercel network cannot access a video source, the browser
-tries the local backend on the same device. A phone's `127.0.0.1` is the phone,
-not another computer.
+deployment. YouTube requests try the local backend on the same device first,
+then fall back to Render. A phone's `127.0.0.1` is the phone, not another
+computer; the local backend must be running on that device to use this fast
+path. Free hosting networks can still be blocked by YouTube.
 
 ## Secrets
 

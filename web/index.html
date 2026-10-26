@@ -965,10 +965,11 @@ $('#faqSearch').addEventListener('input', () => {
 });
 
 async function apiInfo(url) {
-  const probeAt = async (origin) => {
+  const probeAt = async (origin, signal) => {
     const response = await fetch(`${origin}/api/probe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal,
       body: JSON.stringify({ url })
     });
     let payload;
@@ -988,39 +989,64 @@ async function apiInfo(url) {
     return payload;
   };
 
+  const urlHost = new URL(url).hostname.toLowerCase();
+  const isYouTube = /(^|\.)youtube(?:-nocookie)?\.com$|(^|\.)youtu\.be$/.test(urlHost);
+  const isHostedSaveVid = LIVE_SAVEVID_ORIGINS.has(location.origin);
   let payload;
-  try {
-    payload = await probeAt(apiOrigin);
-  } catch (error) {
-    const serverBlocked = LIVE_SAVEVID_ORIGINS.has(location.origin)
-      && apiOrigin === location.origin
-      && error.status === 502
-      && /YouTube is refusing requests from this server's network/i.test(error.message);
-    if (!serverBlocked) throw error;
 
-    const fallbackOrigins = [...new Set([REMOTE_API_ORIGIN, LOCAL_API_ORIGIN])]
-      .filter((origin) => origin !== apiOrigin);
-    const fallbackErrors = [];
-    for (const origin of fallbackOrigins) {
+  if (isYouTube && isHostedSaveVid) {
+    try {
+      payload = await probeAt(LOCAL_API_ORIGIN, AbortSignal.timeout(3500));
+      apiOrigin = LOCAL_API_ORIGIN;
+      $('#sourceHint').textContent = 'Connected to the SaveVid backend running on this computer. Keep the local server open while using the site.';
+      toast('Using this computer for faster fetching');
+    } catch (localError) {
       try {
-        payload = await probeAt(origin);
-        apiOrigin = origin;
-        if (origin === LOCAL_API_ORIGIN) {
-          $('#sourceHint').textContent = 'Connected to the SaveVid backend running on this computer. Keep the local server open while using the site.';
-          toast('Using this computer for downloads');
-        } else {
-          $('#sourceHint').textContent = 'Connected to the SaveVid hosted backend. The first request may take a little longer while the free server wakes up.';
-          toast('Connected to the hosted backend');
-        }
-        break;
-      } catch (fallbackError) {
-        fallbackErrors.push(`${origin}: ${fallbackError.message}`);
+        payload = await probeAt(REMOTE_API_ORIGIN, AbortSignal.timeout(8000));
+        apiOrigin = REMOTE_API_ORIGIN;
+        $('#sourceHint').textContent = 'Connected to the SaveVid hosted backend.';
+        toast('Connected to the hosted backend');
+      } catch (hostedError) {
+        throw new Error(
+          `Fast YouTube fetching needs a backend reachable from this device. Local backend: ${localError.message}. Hosted backend: ${hostedError.message}`
+        );
       }
     }
-    if (!payload) {
-      throw new Error(
-        `${error.message} Hosted/local backend fallback failed: ${fallbackErrors.join('; ')}.`
-      );
+  } else {
+    try {
+      payload = await probeAt(apiOrigin);
+    } catch (error) {
+      const serverBlocked = isHostedSaveVid
+        && apiOrigin === location.origin
+        && error.status === 502
+        && /YouTube is refusing requests from this server's network/i.test(error.message);
+      if (!serverBlocked) throw error;
+
+      const fallbackOrigins = [...new Set([LOCAL_API_ORIGIN, REMOTE_API_ORIGIN])]
+        .filter((origin) => origin !== apiOrigin);
+      const fallbackErrors = [];
+      for (const origin of fallbackOrigins) {
+        try {
+          const signal = origin === REMOTE_API_ORIGIN ? AbortSignal.timeout(8000) : undefined;
+          payload = await probeAt(origin, signal);
+          apiOrigin = origin;
+          if (origin === LOCAL_API_ORIGIN) {
+            $('#sourceHint').textContent = 'Connected to the SaveVid backend running on this computer. Keep the local server open while using the site.';
+            toast('Using this computer for downloads');
+          } else {
+            $('#sourceHint').textContent = 'Connected to the SaveVid hosted backend.';
+            toast('Connected to the hosted backend');
+          }
+          break;
+        } catch (fallbackError) {
+          fallbackErrors.push(`${origin}: ${fallbackError.message}`);
+        }
+      }
+      if (!payload) {
+        throw new Error(
+          `${error.message} Hosted/local backend fallback failed: ${fallbackErrors.join('; ')}.`
+        );
+      }
     }
   }
   const toFormat = (format) => ({
