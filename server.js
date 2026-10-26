@@ -974,64 +974,59 @@ function innertubeHeaders(client) {
   };
 }
 
-async function innertubeOnce(videoId, client) {
-  const res = await fetch('https://www.youtube.com/youtubei/v1/player', {
-    method: 'POST',
-    headers: innertubeHeaders(client),
-    body: innertubeBody(videoId, client),
-    signal: AbortSignal.timeout(8000)
-  });
-  if (!res.ok) throw new Error(`InnerTube replied ${res.status}`);
-  const j = await res.json();
-  const status = j?.playabilityStatus?.status || '';
-  if (status && status !== 'OK') {
-    const why = j.playabilityStatus?.reason || status;
-    throw new Error(/private/i.test(why) ? 'This video is private.'
-      : /age|confirm/i.test(why) ? 'This video is age-restricted.'
-      : /bot/i.test(why) ? 'YouTube asked this server to prove it is not a bot.'
-      : 'This video cannot be played.');
-  }
-  // A bare OK with no streams is a silent failure -- the format list downstream
-  // would be empty and the UI would offer nothing. Treat it as a miss so the
-  // next client gets a turn.
-  const streams = [
-    ...(j.streamingData?.formats || []),
-    ...(j.streamingData?.adaptiveFormats || [])
-  ];
-  if (!streams.some((f) => f && f.url)) throw new Error('InnerTube returned no playable streams.');
-  return j;
-}
-
-// Fire every client at once and take the first good answer. Running them in
-// order instead would make the wait additive -- a link that only the last
-// client can serve would pay the full timeout of every client above it, and a
-// link no client can serve would pay all of them before saying no.
-async function innertubePlayer(videoId) {
-  const results = await Promise.allSettled(
-    INNERTUBE_CLIENTS.map((c) => innertubeOnce(videoId, c))
-  );
-  for (const r of results) {
-    if (r.status === 'fulfilled') return r.value;
-  }
-  for (const [i, r] of results.entries()) {
-    if (r.status === 'rejected') {
-      console.warn(`[fast] InnerTube ${INNERTUBE_CLIENTS[i].name} failed for ${videoId}: ${r.reason.message}`);
+async function innertubeOnce(videoId, client, controller) {
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch('https://www.youtube.com/youtubei/v1/player', {
+      method: 'POST',
+      headers: innertubeHeaders(client),
+      body: innertubeBody(videoId, client),
+      signal: controller.signal
+    });
+    if (!res.ok) throw new Error(`InnerTube replied ${res.status}`);
+    const j = await res.json();
+    const status = j?.playabilityStatus?.status || '';
+    if (status && status !== 'OK') {
+      const why = j.playabilityStatus?.reason || status;
+      throw new Error(/private/i.test(why) ? 'This video is private.'
+        : /age|confirm/i.test(why) ? 'This video is age-restricted.'
+        : /bot/i.test(why) ? 'YouTube asked this server to prove it is not a bot.'
+        : 'This video cannot be played.');
     }
+    // A bare OK with no streams is a silent failure -- the format list downstream
+    // would be empty and the UI would offer nothing. Treat it as a miss so the
+    // next client gets a turn.
+    const streams = [
+      ...(j.streamingData?.formats || []),
+      ...(j.streamingData?.adaptiveFormats || [])
+    ];
+    if (!streams.some((f) => f && f.url)) throw new Error('InnerTube returned no playable streams.');
+    return j;
+  } finally {
+    clearTimeout(timeout);
   }
-  throw new Error('InnerTube could not read this video.');
 }
 
-// oEmbed only needs a plain user agent, not a full client impersonation.
-const INNERTUBE_HEADERS = { 'User-Agent': INNERTUBE_CLIENTS[0].ua };
-
-// oEmbed is ~0.8s and gives a clean title/author/thumbnail, but no formats.
-// Running it alongside InnerTube means the slower of the two (~2s) is the
-// whole cost instead of their sum.
-function oEmbed(videoId) {
-  return fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`, {
-    headers: { 'User-Agent': INNERTUBE_HEADERS['User-Agent'] },
-    signal: AbortSignal.timeout(5000)
-  }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+// Race clients and return as soon as one has usable formats. Promise.allSettled
+// waited for even the slowest client before exposing an earlier successful
+// response; aborting the remaining requests also avoids wasting backend work.
+async function innertubePlayer(videoId) {
+  const controllers = INNERTUBE_CLIENTS.map(() => new AbortController());
+  try {
+    const winner = await Promise.any(INNERTUBE_CLIENTS.map(async (client, index) => ({
+      index,
+      player: await innertubeOnce(videoId, client, controllers[index])
+    })));
+    controllers.forEach((controller, index) => {
+      if (index !== winner.index) controller.abort();
+    });
+    return winner.player;
+  } catch (error) {
+    for (const [i, reason] of error.errors.entries()) {
+      console.warn(`[fast] InnerTube ${INNERTUBE_CLIENTS[i].name} failed for ${videoId}: ${reason.message}`);
+    }
+    throw new Error('InnerTube could not read this video.');
+  }
 }
 
 // Turn InnerTube's format list into the same shape the UI already renders.
@@ -1111,14 +1106,11 @@ function innertubeToMeta(player, oe, url, videoId) {
   };
 }
 
-// Fast YouTube probe: InnerTube + oEmbed concurrently, yt-dlp only as the
-// fallback (age-gated videos, live streams, anything the fast path rejects).
+// InnerTube returns title, author, thumbnail and formats together. Avoid a
+// second oEmbed request here; yt-dlp handles streams and gated videos below.
 async function probeFastYT(url, videoId) {
-  const [player, oe] = await Promise.all([
-    innertubePlayer(videoId),
-    oEmbed(videoId)
-  ]);
-  return innertubeToMeta(player, oe, url, videoId);
+  const player = await innertubePlayer(videoId);
+  return innertubeToMeta(player, null, url, videoId);
 }
 
 async function probeMetadata(url) {
