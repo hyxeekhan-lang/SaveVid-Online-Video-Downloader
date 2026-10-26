@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: savevid
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: ALLOW_ORIGIN
+        value: https://getsavevi.vercel.app
