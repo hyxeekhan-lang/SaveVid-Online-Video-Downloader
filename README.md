@@ -7,6 +7,18 @@ server serves the website and its `/api` routes.
 
 ![SaveVid homepage on desktop](docs/images/savevid-homepage.png)
 
+### More app screenshots
+
+![SaveVid connected to the local backend](docs/images/savevid-home-local-backend.png)
+
+![SaveVid video format selection and preparation error](docs/images/savevid-format-error.png)
+
+![SaveVid FAQ page](docs/images/savevid-faq.png)
+
+![SaveVid on a mobile screen with the dark theme](docs/images/savevid-mobile-dark.png)
+
+![SaveVid on a mobile screen with the light theme](docs/images/savevid-mobile-light.png)
+
 ## Run locally
 
 Install Node.js, then run:
