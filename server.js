@@ -1607,14 +1607,12 @@ async function api(req, res, route) {
     if (clientId && serverId && clientId !== serverId) {
       throw new Error('The link does not match the detected video id.');
     }
-    const ytId = serverId || clientId;
     // A refused probe is remembered under a separate kind, so a cached
     // success and a cached refusal can never be confused for one another.
     const refusal = cacheGet(key, 'probe-fail');
     if (refusal) throw new Error(refusal);
 
-    const data = await once(key, 'probe', TTL_PROBE,
-      () => (ytId ? probeFastYT(raw, ytId).catch(() => probeMetadata(raw)) : probeMetadata(raw)))
+    const data = await once(key, 'probe', TTL_PROBE, () => probeMetadata(raw))
       .catch((e) => {
         if (/bot|authentication|not a bot/i.test(e.message)) {
           cacheSet(key, 'probe-fail', e.message, TTL_PROBE_FAIL);
